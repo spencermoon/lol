@@ -1,0 +1,39 @@
+---
+title: "archetype"
+author: "Christa Spieth"
+date: "4/3/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(archetypes)
+set.seed(1986)
+```
+
+
+```{r}
+matches = read.csv('segment_features.csv', header = TRUE)
+matches = matches[,2:3]
+plot(matches[,2:3])
+```
+
+```{r}
+as <- stepArchetypes(data = matches, k = 1:10, verbose = FALSE,nrep = 4)
+screeplot(as)
+```
+
+```{r}
+# a <- bestModel(as[[?]])
+# xyplot(a, matches, chull = chull(matches))
+# xyplot(a, matches, adata.show = TRUE)
+# movieplot(a, matches)
+```
+
+```{r}
+# t(parameters(a))
+# barplot(a, matches, percentiles = TRUE)
+# pcplot(a3, matches, data.col = as.numeric(skel$Gender))
+# ternaryplot(coef(a3,'alphas'), col = as.numeric(skel$Gender))
+```
+
