@@ -1,0 +1,43 @@
+---
+title: "archetype"
+author: "Christa Spieth"
+date: "4/3/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(archetypes)
+library(vcd)
+set.seed(1986)
+```
+
+
+```{r}
+matches_full = read.csv('segment_features.csv', header = TRUE)
+matches = matches_full[1:1000,2:3] # subset of data
+```
+
+```{r}
+# to determine the best number of archetype profiles
+as <- stepArchetypes(data = matches, k = 1:10, verbose = FALSE,nrep = 4)
+screeplot(as)
+```
+
+```{r}
+a <- bestModel(as[[3]]) # put best number of archetype profiles here
+xyplot(a, matches, chull = chull(matches))
+xyplot(a, matches, adata.show = TRUE)
+# movieplot(a, matches) # this is to show how the archetype profiles were fitted
+```
+
+```{r}
+# numbers and visualizations of archetype profiles
+t(parameters(a))
+barplot(a, matches, percentiles = TRUE)
+
+# not sure how to get these working yet
+# pcplot(a, skel2, data.col = as.numeric(matches$timestamp))
+# ternaryplot(coef(a,'alphas'), col = as.numeric(matches$timestamp)) # uses library(vcd)
+```
+
