@@ -1,4 +1,3 @@
-
 /*
 select eventtype, towertype, avg(timestamp) as avg_time
 from event
@@ -7,41 +6,39 @@ group by 1,2
 order by 3;
 */
 
---1. get timestamps of each segment
--- segment 1 is from start to first tower kill
+
+--1. get timestamps of each segment 
 drop table if exists segment_timestamp;
 create temp table segment_timestamp as (
 select 
-	matchid, 
-	towertype, 
-	coalesce(lag(timestamp) over (partition by matchid order by timestamp), 0) as start_time,
-	timestamp as end_time,
-	row_number() over (partition by matchid order by timestamp) as segment
+	matchid,  
+	case when coalesce(monstertype, towertype, eventtype) = 'UNDEFINED_TURRET' THEN 'INHIBITOR' 
+		ELSE coalesce(monstertype, towertype, eventtype) 
+		end as segment,
+	case when (timestamp - 1.5*60*1000) < 0 then 0 
+		else (timestamp - 1.5*60*1000) 
+		end as start_time,
+	timestamp + 1.5*60*1000 as end_time
 from (
 	select 
 		matchid, 
+		eventtype::text,
 		towertype::text, 
-		min(timestamp) as timestamp  
+		buildingtype::text,
+		monstertype::text,
+		timestamp,
+		row_number() over (partition by matchid, eventtype, towertype, buildingtype, monstertype order by timestamp) as rn
 	from event 
 	--where matchid = 145226393 
-	where eventtype in ('BUILDING_KILL') 
-	and buildingtype in ('TOWER_BUILDING')
-	group by 1,2
-	union all
-	select
-		matchid,
-		'END' as towertype,
-		max(timestamp) as timestamp 
-	from event 
-	--where matchid = 145226393 
-	group by 1
+	where eventtype in ('BUILDING_KILL', 'CHAMPION_KILL', 'ELITE_MONSTER_KILL') 
 	) a
+where rn = 1
 );
 select * from segment_timestamp limit 1000;
 
---2. create table of segment features - minions killed, level, gold, xp
-drop table if exists gold_xp_etc;
-create temp table gold_xp_etc as (
+--2a. create table of segment features - minions killed, level, gold, xp
+drop table if exists gold_xp_etc_max;
+create temp table gold_xp_etc_max as (
 select 
 	matchid, 
 	segment, 
@@ -72,9 +69,67 @@ from (
 	on a.matchid = b.matchid
 	and a.timestamp > b.start_time
 	and a.timestamp <= b.end_time
+	order by 2,5,11
 	) a
 where timestamp = max_timestamp
 group by 1,2,3,4,5
+); 
+
+--2b. create table of segment features - minions killed, level, gold, xp
+drop table if exists gold_xp_etc_min;
+create temp table gold_xp_etc_min as (
+select 
+	matchid, 
+	segment, 
+	start_time,
+	end_time,
+	timestamp, 
+	sum(jungleminionskilled) as jungleminionskilled,
+	sum(minionskilled) as minionskilled,
+	sum(level) as level, 
+	sum(totalgold) as totalgold,
+	sum(xp) as xp--,
+	--count(1)
+from (
+	select 
+		a.matchid, 
+		b.segment, 
+		b.start_time,
+		b.end_time,
+		a.timestamp, 
+		a.level, 
+		a.jungleminionskilled,
+		a.minionskilled,
+		a.totalgold,
+		a.xp,
+		min(a.timestamp) over (partition by a.matchid, b.segment) as min_timestamp --use only data for latest timestamp to not duplicate data
+	from participant_frame a
+	inner join segment_timestamp b
+	on a.matchid = b.matchid
+	and a.timestamp > b.start_time
+	and a.timestamp <= b.end_time
+	order by 2,5,11
+	) a
+where timestamp = min_timestamp
+group by 1,2,3,4,5
+); 
+
+--2c. create table of segment features - minions killed, level, gold, xp
+drop table if exists gold_xp_etc;
+create temp table gold_xp_etc as (
+select 
+	matchid, 
+	segment, 
+	start_time,
+	end_time,
+	a.jungleminionskilled - b.jungleminionskilled as jungleminionskilled,
+	a.minionskilled - b.minionskilled as minionskilled,
+	a.level - b.level as level, 
+	a.totalgold - b.totalgold as totalgold,
+	a.xp - b.xp as xp
+from gold_xp_etc_max a
+join gold_xp_etc_min b
+using (matchid, segment, start_time, end_time)
 ); 
 select * from gold_xp_etc limit 1000; 
 
@@ -170,8 +225,7 @@ create table segment_features as (
 select 
 	a.matchid, 
 	a.segment,
-	a.start_time, 
-	a.end_time,
+	(a.start_time + a.end_time)/2 as timestamp,
 	coalesce(b.jungleminionskilled, 0) as jungleminionskilled,
 	coalesce(b.minionskilled, 0) as minionskilled,
 	coalesce(b.level, 0) as level,
@@ -203,10 +257,8 @@ on a.matchid = f.matchid
 and a.segment = f.segment
 order by 1,2	
 );
+grant all on segment_features to public;
 select * from segment_features limit 1000;
 
 --261,981 rows
 select count(1) from segment_features; 
-
-
-
