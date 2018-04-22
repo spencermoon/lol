@@ -14,13 +14,13 @@ set.seed(1986)
 
 
 ```{r}
-matches_full = read.csv('segment_features.csv', header = TRUE)
-matches = matches_full[1:1000,2:3] # subset of data
+matches_full = read.csv('segments_4_22.csv', header = TRUE)
+matches = matches_full[,3:16] # subset of data
 ```
 
 ```{r}
 # to determine the best number of archetype profiles
-as <- stepArchetypes(data = matches, k = 1:10, verbose = FALSE,nrep = 4)
+as <- stepArchetypes(data = matches, k = 2:10, verbose = FALSE,nrep = 4)
 screeplot(as)
 ```
 
