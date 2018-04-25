@@ -14,20 +14,21 @@ set.seed(1986)
 
 
 ```{r}
-matches_full = read.csv('segments_4_22.csv', header = TRUE)
-matches = matches_full[,3:16] # subset of data
+matches = read.csv('/team/projects/lol/segments_4_22.csv', header = TRUE)
+matches$timestamp = matches$timestamp / 60000 # convert ms to min
+matches[3:16] = sapply(matches[3:16], function(x) (x-mean(x))/sd(x)) # subset of data
 ```
 
 ```{r}
 # to determine the best number of archetype profiles
-as <- stepArchetypes(data = matches, k = 2:10, verbose = FALSE,nrep = 4)
+as <- stepArchetypes(data = matches[-c(1,2)], k = 2:10, verbose = FALSE) # nrep=3 is default
 screeplot(as)
 ```
 
 ```{r}
-a <- bestModel(as[[3]]) # put best number of archetype profiles here
-xyplot(a, matches, chull = chull(matches))
-xyplot(a, matches, adata.show = TRUE)
+a <- bestModel(as[[4]]) # put best number of archetype profiles here
+# xyplot(a, matches, chull = chull(matches))
+# xyplot(a, matches, adata.show = TRUE)
 # movieplot(a, matches) # this is to show how the archetype profiles were fitted
 ```
 
