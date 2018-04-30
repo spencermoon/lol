@@ -142,7 +142,7 @@ create temp table building_kills as (
 		b.start_time,
 		b.end_time,
 		--eventtype, buildingtype, lanetype, towertype,
-		count(1) as building_kills,
+		sum(case when a.buildingtype <> 'INHIBITOR_BUILDING' AND a.towertype <> 'NEXUS_TURRET' then 1 else 0 end) as building_kills,
 		sum(case when a.buildingtype = 'INHIBITOR_BUILDING' then 1 else 0 end) as inhibitor_kills,
 		sum(case when a.towertype = 'NEXUS_TURRET' then 1 else 0 end) as nexus_kills
 	from event a
