@@ -5,11 +5,60 @@ where eventtype in ('BUILDING_KILL') and buildingtype in ('TOWER_BUILDING')
 group by 1,2
 order by 3;
 */
+--60 s: 640,047
+--30 s: 691,518
+--15 s: 704,826
 
 
---1. get timestamps of each segment 
-drop table if exists segment_timestamp;
-create temp table segment_timestamp as (
+select count(1) from (
+select  
+	matchid,  
+	'Z_TEAM_FIGHT_' || row_number() over (partition by matchid order by timestamp) as segment,
+	case when (timestamp - 1.5*60*1000) < 0 then 0 
+		else (timestamp - 1.5*60*1000) 
+		end as start_time,
+	timestamp + 1.5*60*1000 as end_time
+from (
+select 
+	*, 
+	lag(rn) over (partition by matchid order by timestamp) as rn_lag, 
+	rn - lag(rn) over (partition by matchid order by timestamp) as rn_flag
+from (
+select 
+	*, 
+	((x-x2)^2 + (y-y2)^2)^.5 as distance
+from (
+	select 
+		*, 
+		timestamp - lag(timestamp) over (partition by matchid order by timestamp) as time_between_kills, 
+		lag(x) over (partition by matchid order by timestamp) as x2, 
+		lag(y) over (partition by matchid order by timestamp) as y2
+	from (
+		select 
+			matchid, 
+			timestamp as timestamp, 
+			position::varchar,
+			(split_part(split_part(position::varchar, ',', 1), '(', 2))::int as x, 
+			(split_part(split_part(position::varchar, ',', 2), ')', 1))::int as y,
+			row_number() over (partition by matchid order by timestamp) as rn
+		from event 
+		--where matchid = 145226393
+		where eventtype = 'CHAMPION_KILL'
+		order by timestamp
+		) a
+	) b 
+where (((x-x2)^2 + (y-y2)^2)^.5) < 5000
+and time_between_kills <= 60*1000
+) c
+) d 
+where rn_flag > 1 
+	) e
+;
+
+
+--1a. get timestamps of each segment except champion kills
+drop table if exists segment_timestamp_1;
+create temp table segment_timestamp_1 as (
 select 
 	matchid,  
 	case when coalesce(monstertype, towertype, eventtype) = 'UNDEFINED_TURRET' THEN 'INHIBITOR' 
@@ -34,7 +83,67 @@ from (
 	) a
 where rn = 1
 );
-select * from segment_timestamp limit 1000;
+select * from segment_timestamp_1 limit 1000;
+
+
+--1b. get timestamps of just champion kills
+drop table if exists segment_timestamp_2;
+create temp table segment_timestamp_2 as (
+select 
+	matchid,  
+	'Z_TEAM_FIGHT_' || row_number() over (partition by matchid order by timestamp) as segment,
+	case when (timestamp - 1.5*60*1000) < 0 then 0 
+		else (timestamp - 1.5*60*1000) 
+		end as start_time,
+	timestamp + 1.5*60*1000 as end_time
+from (
+select 
+	*, 
+	lag(rn) over (partition by matchid order by timestamp) as rn_lag, 
+	rn - lag(rn) over (partition by matchid order by timestamp) as rn_flag
+from (
+select 
+	*, 
+	((x-x2)^2 + (y-y2)^2)^.5 as distance
+from (
+	select 
+		*, 
+		timestamp - lag(timestamp) over (partition by matchid order by timestamp) as time_between_kills, 
+		lag(x) over (partition by matchid order by timestamp) as x2, 
+		lag(y) over (partition by matchid order by timestamp) as y2
+	from (
+		select 
+			matchid, 
+			timestamp as timestamp, 
+			position::varchar,
+			(split_part(split_part(position::varchar, ',', 1), '(', 2))::int as x, 
+			(split_part(split_part(position::varchar, ',', 2), ')', 1))::int as y,
+			row_number() over (partition by matchid order by timestamp) as rn
+		from event 
+		--where matchid < 145226393
+		where eventtype = 'CHAMPION_KILL'
+		order by timestamp
+		) a
+	) b 
+where (((x-x2)^2 + (y-y2)^2)^.5) < 5000
+and time_between_kills <= 60*1000
+) c
+) d 
+where rn_flag > 1 
+);
+select * from segment_timestamp_2 limit 1000;
+
+
+--1c. union segment timestamps
+drop table if exists segment_timestamp;
+create temp table segment_timestamp as (
+select * from segment_timestamp_1 
+	union all 
+select * from segment_timestamp_2 	
+);
+
+select *, (start_time/60000)::int as start_min from segment_timestamp where matchid = 145226393 order by start_time limit 1000;
+
 
 --2a. create table of segment features - minions killed, level, gold, xp
 drop table if exists gold_xp_etc_max;
@@ -69,7 +178,7 @@ from (
 	on a.matchid = b.matchid
 	and a.timestamp > b.start_time
 	and a.timestamp <= b.end_time
-	order by 2,5,11
+	--order by 2,5,11
 	) a
 where timestamp = max_timestamp
 group by 1,2,3,4,5
@@ -108,7 +217,7 @@ from (
 	on a.matchid = b.matchid
 	and a.timestamp > b.start_time
 	and a.timestamp <= b.end_time
-	order by 2,5,11
+	--order by 2,5,11
 	) a
 where timestamp = min_timestamp
 group by 1,2,3,4,5
@@ -132,6 +241,9 @@ join gold_xp_etc_min b
 using (matchid, segment, start_time, end_time)
 ); 
 select * from gold_xp_etc limit 1000; 
+select *, (start_time/60000)::int as start_min from gold_xp_etc where matchid = 145226393 order by start_time limit 1000;
+
+
 
 --3. add to segment features - building kills
 drop table if exists building_kills;
@@ -220,8 +332,8 @@ select * from items_purchased limit 1000;
 --copy segment_features to 'segment_features.csv' delimiter ',' csv header;
 
 --7. join all segment features in perm table
-drop table if exists segment_features;
-create table segment_features as (
+drop table if exists segment_features2;
+create table segment_features2 as (
 select 
 	a.matchid, 
 	a.segment,
@@ -255,10 +367,18 @@ and a.segment = e.segment
 left join items_purchased f 
 on a.matchid = f.matchid
 and a.segment = f.segment
-order by 1,2	
+	
 );
-grant all on segment_features to public;
-select * from segment_features limit 1000;
+grant all on segment_features2 to public;
+select * from segment_features2 limit 1000;
 
 --261,981 rows
-select count(1) from segment_features; 
+--1,053,680 rows
+select count(1) from segment_features2; 
+
+--min gets A, max gets Z
+--select min(segment) from segment_timestamp_1;
+
+select * from segment_features2 where matchid = 92352108 order by 3;
+
+
